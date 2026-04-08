@@ -19,7 +19,7 @@
             "6509",
             "7572",
             "--num_runs",
-            "2",
+            "3",
             "--gpu",
             "0",
             "--use_zinb",
@@ -32,7 +32,7 @@
             "--tissue",
             "Spleen",
             "--num_runs",
-            "2",
+            "3",
             "--train_dataset",
             "3043",
             "3777",
@@ -76,7 +76,7 @@
             "470",
             "492",
             "--num_runs",
-            "2",
+            "3",
             "--gpu",
             "0",
             "--use_zinb",
@@ -112,7 +112,7 @@
             "551",
             "559",
             "--num_runs",
-            "2",
+            "3",
             "--gpu",
             "0",
             "--use_zinb",
@@ -177,7 +177,7 @@
             "--device",
             "cuda:0",
             "--num_runs",
-            "2"
+            "3"
         ],
         "151676": [
             "--sample_number",
@@ -185,7 +185,7 @@
             "--device",
             "cuda:1",
             "--num_runs",
-            "2"
+            "3"
         ],
         "151507": [
             "--sample_number",
@@ -193,7 +193,7 @@
             "--device",
             "cuda:2",
             "--num_runs",
-            "2"
+            "3"
         ],
         "sub_mba": [
             "--sample_number",
@@ -201,7 +201,7 @@
             "--device",
             "cuda:3",
             "--num_runs",
-            "2"
+            "3"
         ],
         "human_breast_cancer": [
             "--sample_number",
@@ -209,7 +209,7 @@
             "--device",
             "cuda:4",
             "--num_runs",
-            "2"
+            "3"
         ],
         "pancreatic_cancer": [
             "--sample_number",
@@ -217,7 +217,7 @@
             "--device",
             "cuda:5",
             "--num_runs",
-            "2"
+            "3"
         ]
     },
     "stlearn_benchmarks":{
@@ -292,7 +292,7 @@
             "--n_epochs",
             "300",
             "--num_runs",
-            "2",
+            "3",
             "--device",
             "cuda:0" 
         ],
@@ -322,7 +322,7 @@
             "--n_epochs",
             "300",
             "--num_runs",
-            "2",
+            "3",
             "--device",
             "cuda:0"
         ],
@@ -345,7 +345,7 @@
             "6509",
             "7572",
             "--num_runs",
-            "2",
+            "3",
             "--device",
             "cuda:0",
             "--n_epochs",
@@ -381,7 +381,7 @@
             "--n_epochs",
             "300",
             "--num_runs",
-            "2",
+            "3",
             "--device",
             "cuda:0" 
         ]
@@ -511,8 +511,8 @@
             "6509",
             "7572",
             "--num_runs",
-            "2",
-            "--gpu","5" 
+            "3",
+            "--gpu","3" 
         ],
         "Human_Spleen": [
             "--species",
@@ -560,8 +560,8 @@
             "470",
             "492",
             "--num_runs",
-            "2",
-            "--gpu","0" 
+            "3",
+            "--gpu","5" 
         ],
         "Human_CD4": [
             "--species",
@@ -591,8 +591,8 @@
             "551",
             "559",
             "--num_runs",
-            "1",
-            "--gpu","0" 
+            "3",
+            "--gpu","6" 
         ]
     },
     "graphcs_benchmarks": {
@@ -845,7 +845,7 @@
         "--num_runs",
         "1",
         "--gpu",
-        "0"
+        "7"
     ],
     "graphcs_stage1_args": [
         "--species",
