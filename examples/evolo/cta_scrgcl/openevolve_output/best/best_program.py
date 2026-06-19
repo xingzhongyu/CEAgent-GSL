@@ -21,6 +21,8 @@ import requests_cache
 import hashlib
 import logging
 import tempfile
+import time
+import json
 from abc import ABC, abstractmethod
 
 from dance.data import Data
@@ -371,7 +373,9 @@ if __name__ == "__main__":
 
     scores = []
     inner_scores=[]
+    times = []
     for run in range(runs):
+        start_time = time.time()
         set_seed(args.seed + run)
         with tempfile.TemporaryDirectory() as temp_dir:
             model = scRGCLWrapper(
@@ -431,8 +435,37 @@ if __name__ == "__main__":
             inner_score = model.score(x_val, y_val, score_func="acc")
             scores.append(score)
             inner_scores.append(inner_score)
+            end_time = time.time()
+            run_time = end_time - start_time
+            times.append(run_time)
             print(f"Run {run+1} Score: {score:.4f}")
 
     print(f"\nscRGCL {args.species} {args.tissue} Test Set {args.test_dataset}:")
-    print(f"mean_score: {np.mean(scores):.5f} +/- {np.std(scores):.5f}")
-    print(f"mean_inner_score: {np.mean(inner_scores):.5f} +/- {np.std(inner_scores):.5f}")
+    mean_score = np.mean(scores)
+    std_score = np.std(scores)
+    mean_inner_score = np.mean(inner_scores)
+    std_inner_score = np.std(inner_scores)
+    print(f"mean_score: {mean_score:.5f} +/- {std_score:.5f}")
+    print(f"mean_inner_score: {mean_inner_score:.5f} +/- {std_inner_score:.5f}")
+    results_dict = {
+        "species": args.species,
+        "tissue": args.tissue,
+        "train_dataset": args.train_dataset,
+        "test_dataset": args.test_dataset,
+        "num_runs": args.num_runs,
+        "scores": [float(s) for s in scores],
+        "inner_scores": [float(s) for s in inner_scores],
+        "times": [float(t) for t in times],
+        "metrics": {
+            "mean_score": float(mean_score),
+            "std_score": float(std_score),
+            "mean_inner_score": float(mean_inner_score),
+            "std_inner_score": float(std_inner_score),
+            "mean_time": float(np.mean(times))
+        }
+    }
+    test_ds_str = "_".join(map(str, args.test_dataset))
+    json_filename = f"results_{args.species}_{args.tissue}_{test_ds_str}.json"
+    with open(json_filename, "w", encoding="utf-8") as f:
+        json.dump(results_dict, f, indent=4, ensure_ascii=False)
+    print(f"Results successfully saved to {json_filename}")

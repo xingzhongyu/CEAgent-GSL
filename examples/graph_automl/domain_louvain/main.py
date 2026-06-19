@@ -1,5 +1,6 @@
 import argparse
 import gc
+import json
 import os
 import time
 
@@ -27,6 +28,7 @@ if __name__ == "__main__":
     parser.add_argument("--tune_mode", default="pipeline_params", choices=["pipeline", "params", "pipeline_params"])
     parser.add_argument("--count", type=int, default=2)
     parser.add_argument("--sweep_id", type=str, default=None)
+    parser.add_argument("--config_suffix", type=str, default="", help="Suffix appended to tune_mode for config file and result file naming (e.g., 'default', 'best').")
     parser.add_argument("--summary_file_path", default="results/pipeline/best_test_acc.csv", type=str)
     parser.add_argument("--root_path", default=str(Path(__file__).resolve().parent), type=str)
     parser.add_argument("--data_dir", type=str, default='../temp_data', help='test directory')
@@ -36,7 +38,7 @@ if __name__ == "__main__":
     args = parser.parse_args()
     file_root_path = Path(args.root_path, args.sample_number).resolve()
     logger.info(f"\n files is saved in {file_root_path}")
-    pipeline_planer = PipelinePlaner.from_config_file(f"{Path(args.root_path).resolve()}/{args.tune_mode}_tuning_config.yaml")
+    pipeline_planer = PipelinePlaner.from_config_file(f"{Path(args.root_path).resolve()}/{args.tune_mode + '_' + args.config_suffix if args.config_suffix else args.tune_mode}_tuning_config.yaml")
     os.environ["WANDB_AGENT_MAX_INITIAL_FAILURES"] = "2000"
 
     def evaluate_pipeline(tune_mode=args.tune_mode, pipeline_planer=pipeline_planer):
@@ -45,11 +47,15 @@ if __name__ == "__main__":
         scores = []
         inner_scores = []
 
+        # 用于记录每次 run 的详细信息
+        run_details = []
+
         # Start Timer
         start_time = time.time()
 
         for run_idx in range(args.num_runs):
             print(f"Starting Run {run_idx + 1}/{args.num_runs}")
+            run_start_time = time.time()
 
             current_seed = args.seed + run_idx
             set_seed(current_seed)
@@ -84,6 +90,16 @@ if __name__ == "__main__":
             scores.append(score)
             inner_scores.append(run_inner_score)
 
+            run_time_seconds = time.time() - run_start_time
+            # 记录单次 run 的数据
+            run_details.append({
+                "run_idx": run_idx + 1,
+                "seed": current_seed,
+                "ari": float(score),
+                "inner_score": float(run_inner_score),
+                "time_seconds": float(run_time_seconds)
+            })
+
             print(f"Run {run_idx + 1} finished. ARI: {score:.4f}, Inner Score: {run_inner_score:.4f}")
 
             del model, data
@@ -100,6 +116,39 @@ if __name__ == "__main__":
         combined_score = 0.8 * avg_inner_score + 0.2 * speed_score
 
         print(f"Averaged over {args.num_runs} runs - ARI: {avg_score:.4f}, Inner Score: {avg_inner_score:.4f}, Time: {total_time_seconds:.2f}s, Combined Score: {combined_score:.4f}")
+
+        # ================= JSON 记录逻辑开始 =================
+        dataset_key = args.sample_number
+
+        experiment_summary = {
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "hyperparameters": dict(wandb.config) if wandb.config else {},
+            "runs": run_details,
+            "avg_ari": float(avg_score),
+            "avg_inner_score": float(avg_inner_score),
+            "total_time_seconds": float(total_time_seconds),
+            "speed_score": float(speed_score),
+            "combined_score": float(combined_score)
+        }
+
+        json_log_path = Path(args.root_path) / f"experiment_results_{tune_mode}{'_' + args.config_suffix if args.config_suffix else ''}.json"
+
+        if json_log_path.exists():
+            try:
+                with open(json_log_path, "r", encoding="utf-8") as f:
+                    all_results = json.load(f)
+            except json.JSONDecodeError:
+                all_results = {}
+        else:
+            all_results = {}
+
+        if dataset_key not in all_results:
+            all_results[dataset_key] = []
+        all_results[dataset_key].append(experiment_summary)
+
+        with open(json_log_path, "w", encoding="utf-8") as f:
+            json.dump(all_results, f, indent=4, ensure_ascii=False)
+        # ================= JSON 记录逻辑结束 =================
 
         wandb.log({
             "ARI": avg_score,

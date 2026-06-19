@@ -188,9 +188,9 @@ def compute_full_matrix(methods, method_code_map, initial_cache):
     # 在这里填入你想强制重新计算的方法名（列表）
     # 只要配对中涉及这些方法，就会忽略 CSV 里的旧值，强制重跑 LLM
     FORCE_RERUN_METHODS = [
-        "domain_stlearn",   # 举例：你想重跑这个
-        "domain_spagra", # 举例：还有这个
-        "domain_stagate"
+        # "domain_stlearn",   # 举例：你想重跑这个
+        # "domain_spagra", # 举例：还有这个
+        # "domain_stagate"
     ]
     # ================= 改动结束 =================
 

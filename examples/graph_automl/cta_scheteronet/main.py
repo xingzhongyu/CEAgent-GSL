@@ -1,5 +1,6 @@
 import argparse
 import gc
+import json  # <--- 新增：用于处理 JSON 数据
 import os
 import pprint
 import sys
@@ -74,6 +75,7 @@ if __name__ == "__main__":
     parser.add_argument("--tune_mode", default="pipeline_params", choices=["pipeline", "params", "pipeline_params"])
     parser.add_argument("--count", type=int, default=9)
     parser.add_argument("--sweep_id", type=str, default=None)
+    parser.add_argument("--config_suffix", type=str, default="", help="Suffix appended to tune_mode for config file and result file naming (e.g., 'default', 'best').")
     parser.add_argument("--summary_file_path", default="results/pipeline/best_test_acc.csv", type=str)
     parser.add_argument("--root_path", default=str(Path(__file__).resolve().parent), type=str)
     parser.add_argument("--filetype", default="csv")
@@ -91,8 +93,8 @@ if __name__ == "__main__":
         ])).resolve()
     logger.info(f"\n files is saved in {file_root_path}")
     
-    pipeline_planer = PipelinePlaner.from_config_file(f"{Path(args.root_path).resolve()}/{args.tune_mode}_tuning_config.yaml")
-    
+    pipeline_planer = PipelinePlaner.from_config_file(f"{Path(args.root_path).resolve()}/{args.tune_mode + '_' + args.config_suffix if args.config_suffix else args.tune_mode}_tuning_config.yaml")
+
     if args.gpu == -1:
         device = torch.device("cpu")
     else:
@@ -107,12 +109,16 @@ if __name__ == "__main__":
         train_scores = []
         valid_scores = []
         test_scores = []
+        
+        # 用于记录每次 run 的详细信息
+        run_details = []
 
         # Start Timer
         start_time = time.time()
 
         for run_idx in range(args.num_runs):
             logger.info(f"Starting Run {run_idx + 1}/{args.num_runs}")
+            run_start_time = time.time()
             
             current_seed = args.seed + run_idx
             set_seed(current_seed)
@@ -170,6 +176,17 @@ if __name__ == "__main__":
             valid_scores.append(run_valid_score)
             test_scores.append(run_test_score)
             
+            run_time_seconds = time.time() - run_start_time
+            # 记录单次 run 的数据
+            run_details.append({
+                "run_idx": run_idx + 1,
+                "seed": current_seed,
+                "train_acc": float(run_train_score),
+                "valid_acc": float(run_valid_score),
+                "test_acc": float(run_test_score),
+                "time_seconds": float(run_time_seconds)
+            })
+            
             logger.info(f"Run {run_idx + 1} finished. Valid Acc: {run_valid_score:.4f}, Test Acc: {run_test_score:.4f}")
 
             del model, data, dataset_ind, dataset_ood_tr, dataset_ood_te, g, adata
@@ -189,6 +206,49 @@ if __name__ == "__main__":
         combined_score = 0.8 * avg_valid_score + 0.2 * speed_score
 
         logger.info(f"Averaged over {args.num_runs} runs - Valid Acc: {avg_valid_score:.4f}, Time: {total_time_seconds:.2f}s, Combined Score: {combined_score:.4f}")
+
+        # ================= JSON 记录逻辑开始 =================
+        # 生成一个唯一标识当前数据集的 key，包含 train, valid, test
+        train_ds_str = "_".join(map(str, args.train_dataset)) if args.train_dataset else "none"
+        valid_ds_str = "_".join(map(str, args.valid_dataset)) if args.valid_dataset else "none"
+        test_ds_str = "_".join(map(str, args.test_dataset)) if args.test_dataset else "none"
+        dataset_key = f"{args.species}_{args.tissue}_train_{train_ds_str}_valid_{valid_ds_str}_test_{test_ds_str}"
+        
+        # 整理要保存的字典数据
+        experiment_summary = {
+            "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+            "hyperparameters": dict(wandb.config) if wandb.config else {},
+            "runs": run_details,
+            "avg_train_acc": float(avg_train_score),
+            "avg_valid_acc": float(avg_valid_score),
+            "avg_test_acc": float(avg_test_score),
+            "total_time_seconds": float(total_time_seconds),
+            "speed_score": float(speed_score),
+            "combined_score": float(combined_score)
+        }
+        
+        # 定义 JSON 文件的保存路径
+        json_log_path = Path(args.root_path) / f"experiment_results_{tune_mode}{'_' + args.config_suffix if args.config_suffix else ''}.json"
+        
+        # 读取已有的 JSON 数据（如果存在）
+        if json_log_path.exists():
+            try:
+                with open(json_log_path, "r", encoding="utf-8") as f:
+                    all_results = json.load(f)
+            except json.JSONDecodeError:
+                all_results = {}
+        else:
+            all_results = {}
+            
+        # 将当前实验结果追加到对应的数据集下
+        if dataset_key not in all_results:
+            all_results[dataset_key] = []
+        all_results[dataset_key].append(experiment_summary)
+        
+        # 写回 JSON 文件
+        with open(json_log_path, "w", encoding="utf-8") as f:
+            json.dump(all_results, f, indent=4, ensure_ascii=False)
+        # ================= JSON 记录逻辑结束 =================
 
         wandb.log({
             "train_acc": avg_train_score, 
