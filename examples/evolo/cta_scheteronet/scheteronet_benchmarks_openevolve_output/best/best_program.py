@@ -27,6 +27,8 @@ from dance.transforms.misc import Compose, SaveRaw, SetConfig
 from dance.transforms.normalize import Log1P, NormalizeTotal, UpdateSizeFactors
 from dance.typing import LogLevel
 from dance.utils import set_seed, sub_data
+import time
+import json
 
 
 
@@ -203,12 +205,14 @@ if __name__ == "__main__":
     runs = args.num_runs
     results = []
     inner_scores = []
+    times = []
     if args.gpu == -1:
         device = torch.device("cpu")
     else:
         device = torch.device("cuda:" + str(args.gpu)) if torch.cuda.is_available() else torch.device("cpu")
     eval_func = eval_acc
     for run in range(runs):
+        start_time = time.time()
         set_seed(args.seed + run)
         dataloader = CellTypeAnnotationDataset(species=args.species, tissue=args.tissue, test_dataset=args.test_dataset,
                                                train_dataset=args.train_dataset, data_dir=args.data_dir,
@@ -264,8 +268,37 @@ if __name__ == "__main__":
             inner_score = model.score(dataset_ind, dataset_ind.y, data.train_idx)
         results.append(test_score)
         inner_scores.append(inner_score)
-    print(f"mean_score: {np.mean(results):.5f} +/- {np.std(results):.5f}")
-    print(f"mean_inner_score: {np.mean(inner_scores):.5f} +/- {np.std(inner_scores):.5f}")
+        end_time = time.time()
+        run_time = end_time - start_time
+        times.append(run_time)
+    mean_score = np.mean(results)
+    std_score = np.std(results)
+    mean_inner_score = np.mean(inner_scores)
+    std_inner_score = np.std(inner_scores)
+    print(f"mean_score: {mean_score:.5f} +/- {std_score:.5f}")
+    print(f"mean_inner_score: {mean_inner_score:.5f} +/- {std_inner_score:.5f}")
+    results_dict = {
+        "species": args.species,
+        "tissue": args.tissue,
+        "train_dataset": args.train_dataset,
+        "test_dataset": args.test_dataset,
+        "num_runs": args.num_runs,
+        "scores": [float(s) for s in results],
+        "inner_scores": [float(s) for s in inner_scores],
+        "times": [float(t) for t in times],
+        "metrics": {
+            "mean_score": float(mean_score),
+            "std_score": float(std_score),
+            "mean_inner_score": float(mean_inner_score),
+            "std_inner_score": float(std_inner_score),
+            "mean_time": float(np.mean(times))
+        }
+    }
+    test_ds_str = "_".join(map(str, args.test_dataset))
+    json_filename = f"results_{args.species}_{args.tissue}_{test_ds_str}.json"
+    with open(json_filename, "w", encoding="utf-8") as f:
+        json.dump(results_dict, f, indent=4, ensure_ascii=False)
+    print(f"Results successfully saved to {json_filename}")
 
 #TODO test_score is true delete odd test以及其他评估方法，再次测试，然后将valid等和其他算法保持一致。
 """
