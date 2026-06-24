@@ -25,7 +25,8 @@ from typing import Optional, Tuple, Union, Any
 
 from dance.transforms.base import BaseTransform
 from dance.registry import register_preprocessor
-
+import time
+import json
 
 # EVOLVE-BLOCK-START
 @register_preprocessor("graph", "cell",overwrite=True)
@@ -260,7 +261,7 @@ if __name__ == "__main__":
     parser.add_argument("--tissue", default="Spleen")
     parser.add_argument("--train_dataset", nargs="+", default=[1970], type=int, help="list of dataset id")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--num_runs", type=int, default=2)
+    parser.add_argument("--num_runs", type=int, default=2)#num_runs must be 2
     parser.add_argument("--val_size", type=float, default=0.2, help="val size")
     
     # Training parameters (passed to GraphCSClassifier.__init__)
@@ -293,7 +294,9 @@ if __name__ == "__main__":
 
     scores = []
     inner_scores=[]
+    times = []  # 新增：用于记录每次运行的时间
     for seed in range(args.seed, args.seed + args.num_runs):
+        start_time = time.time()
         set_seed(seed)
         
         # Initialize model: args are passed here, so self.batch_size etc are set now
@@ -348,6 +351,9 @@ if __name__ == "__main__":
         inner_scores.append(inner_score)
         scores.append(score)
         print(f"{score=:.4f}")
+        end_time = time.time()  # 新增：记录单次循环的结束时间
+        run_time = end_time - start_time
+        times.append(run_time)  # 新增：保存耗时
 
     print(f"GraphCS {args.species} {args.tissue} {args.test_dataset}:")
     mean_score = np.mean(scores)
@@ -356,6 +362,32 @@ if __name__ == "__main__":
     std_inner_score = np.std(inner_scores)
     print(f"mean_score: {mean_score:.5f} +/- {std_score:.5f}")
     print(f"mean_inner_score: {mean_inner_score:.5f} +/- {std_inner_score:.5f}")
+    results_dict = {
+        "species": args.species,
+        "tissue": args.tissue,
+        "train_dataset": args.train_dataset,
+        "test_dataset": args.test_dataset,
+        "num_runs": args.num_runs,
+        "scores": [float(s) for s in scores],
+        "inner_scores": [float(s) for s in inner_scores],
+        "times": [float(t) for t in times],
+        "metrics": {
+            "mean_score": float(mean_score),
+            "std_score": float(std_score),
+            "mean_inner_score": float(mean_inner_score),
+            "std_inner_score": float(std_inner_score),
+            "mean_time": float(np.mean(times))
+        }
+    }
+
+    # 构造文件名，例如：results_mouse_Spleen_1759.json
+    test_ds_str = "_".join(map(str, args.test_dataset))
+    json_filename = f"results_{args.species}_{args.tissue}_{test_ds_str}.json"
+
+    with open(json_filename, "w", encoding="utf-8") as f:
+        json.dump(results_dict, f, indent=4, ensure_ascii=False)
+
+    print(f"Results successfully saved to {json_filename}")
 
 """To reproduce GraphCS benchmarks, please refer to command lines below:
 
@@ -369,4 +401,5 @@ Mouse Kidney
 $ python graphcs.py --species mouse --tissue Kidney --train_dataset 4682 --test_dataset 203
 
 $ python graphcs.py --species human --tissue Brain --train_dataset 328 --test_dataset 138
+
 """
