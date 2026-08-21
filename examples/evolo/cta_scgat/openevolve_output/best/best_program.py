@@ -12,6 +12,7 @@ from dance.utils import set_seed, sub_data
 
 import hashlib
 import time
+import json
 import numpy as np
 import pandas as pd
 import scanpy as sc
@@ -312,6 +313,7 @@ class scGATGraphTransform(BaseTransform):
 
         return data
 # EVOLVE-BLOCK-END
+
 def get_get_preprocessing_pipeline(label_column: str = 'cell_type',
                             n_neighbors: int = 15,log_level="INFO") -> BaseTransform:
     transforms=[]
@@ -321,6 +323,7 @@ def get_get_preprocessing_pipeline(label_column: str = 'cell_type',
             "label_channel": "cell_type"
         }),)
     return Compose(*transforms, log_level=log_level)
+
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(formatter_class=argparse.ArgumentDefaultsHelpFormatter)
     parser.add_argument("--cache", action="store_true", help="Cache processed data.")
@@ -330,7 +333,7 @@ if __name__ == "__main__":
     parser.add_argument("--tissue", default="Spleen")
     parser.add_argument("--train_dataset", nargs="+", default=[1970], type=int, help="list of dataset id")
     parser.add_argument("--seed", type=int, default=42)
-    parser.add_argument("--num_runs", type=int, default=3)
+    parser.add_argument("--num_runs", type=int, default=2)
     parser.add_argument("--val_size", type=float, default=0.2, help="val size")
     
     # GAT specific args
@@ -338,13 +341,21 @@ if __name__ == "__main__":
     parser.add_argument("--hidden_channels", type=int, default=8)
     parser.add_argument("--n_epochs", type=int, default=5000)
     parser.add_argument("--obs_nums",type=int,default=None)
+    
+    # -------- 新增：--save 选项 --------
+    parser.add_argument("--save", action="store_true", help="Compute and save the Edge Homophily Ratio")
+    
     args = parser.parse_args()
     logger.setLevel("INFO")
     logger.info(f"Running GAT with the following parameters:\n{pprint.pformat(vars(args))}")
 
     scores = []
     inner_scores = []
+    times = []
+    homophily_scores = []  # 新增：用于记录多次运行的同质性比率
+
     for seed in range(args.seed, args.seed + args.num_runs):
+        start_time = time.time()
         set_seed(seed)
         
         # 1. 初始化模型 (参数需要显式传递，不能直接传 args)
@@ -379,6 +390,29 @@ if __name__ == "__main__":
         print(data)
 
         preprocessing_pipeline(data)
+
+        # -------- 新增：计算 Edge Homophily Ratio --------
+        if args.save:
+            # 提取图结构和真实标签
+            pyg_data = data.data.uns['pyg_data']
+            edge_index = pyg_data.edge_index
+            labels = pyg_data.y
+            
+            # 为了更严格地证明图的质量，建议剔除自环（Self-loops）
+            # 因为自环(自己连自己)必然是同类的，会虚高同质性
+            mask = edge_index[0] != edge_index[1]
+            u = edge_index[0][mask]
+            v = edge_index[1][mask]
+            
+            if len(u) > 0:
+                # 计算两端标签相同的比例
+                homo_ratio = (labels[u] == labels[v]).float().mean().item()
+            else:
+                homo_ratio = 0.0
+                
+            homophily_scores.append(homo_ratio)
+            print(f"Run seed {seed} - Edge Homophily Ratio (without self-loops): {homo_ratio:.4f}")
+        # --------------------------------------------------
 
         # 4. 训练
         # 修改点：GAT 需要图结构，直接传入包含 'pyg_data' 的 AnnData 对象
@@ -425,8 +459,12 @@ if __name__ == "__main__":
         inner_score = (y_pred_val == y_val.cpu().numpy()).mean()
         scores.append(score)
         inner_scores.append(inner_score)
+        end_time = time.time()
+        run_time = end_time - start_time
+        times.append(run_time)
         print(f"{score=:.4f}")
         print(f"{inner_score=:.4f}")
+        
     print(f"GAT {args.species} {args.tissue} {args.test_dataset}:")
     mean_score = np.mean(scores)
     std_score = np.std(scores)
@@ -434,3 +472,38 @@ if __name__ == "__main__":
     std_inner_score = np.std(inner_scores)
     print(f"mean_score: {mean_score:.5f} +/- {std_score:.5f}")
     print(f"mean_inner_score: {mean_inner_score:.5f} +/- {std_inner_score:.5f}")
+    
+    results_dict = {
+        "species": args.species,
+        "tissue": args.tissue,
+        "train_dataset": args.train_dataset,
+        "test_dataset": args.test_dataset,
+        "num_runs": args.num_runs,
+        "scores": [float(s) for s in scores],
+        "inner_scores": [float(s) for s in inner_scores],
+        "times": [float(t) for t in times],
+        "metrics": {
+            "mean_score": float(mean_score),
+            "std_score": float(std_score),
+            "mean_inner_score": float(mean_inner_score),
+            "std_inner_score": float(std_inner_score),
+            "mean_time": float(np.mean(times))
+        }
+    }
+
+    # -------- 新增：将 Homophily 结果写入 JSON --------
+    if args.save and homophily_scores:
+        mean_homo = np.mean(homophily_scores)
+        std_homo = np.std(homophily_scores)
+        print(f"mean_edge_homophily: {mean_homo:.5f} +/- {std_homo:.5f}")
+        
+        results_dict["homophily_scores"] = [float(s) for s in homophily_scores]
+        results_dict["metrics"]["mean_homophily"] = float(mean_homo)
+        results_dict["metrics"]["std_homophily"] = float(std_homo)
+    # --------------------------------------------------
+
+    test_ds_str = "_".join(map(str, args.test_dataset))
+    json_filename = f"results_{args.species}_{args.tissue}_{test_ds_str}.json"
+    with open(json_filename, "w", encoding="utf-8") as f:
+        json.dump(results_dict, f, indent=4, ensure_ascii=False)
+    print(f"Results successfully saved to {json_filename}")
